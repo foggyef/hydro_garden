@@ -1,0 +1,46 @@
+[
+    {
+        "title": "Default",
+        "nutrients": [
+            {"name": "Nitrogen (urea)", "grams": 1.0, "color": "blue"},
+            {"name": "Phosphorus (MAP)", "grams": 2.0, "color": "red"},
+            {"name": "Potassium (potassium sulfate)", "grams": 1.0, "color": "green"},
+            {"name": "Calcium (calcium nitrate)", "grams": 0.5, "color": "purple"},
+            {"name": "Magnesium (Epsom salt)", "grams": 0.5, "color": "orange"}
+        ],
+        "baseOunces": 128.0
+    },
+    {
+        "title": "Tomatoes",
+        "nutrients": [
+            {"name": "Nitrogen (urea)", "grams": 1.5, "color": "blue"},
+            {"name": "Phosphorus (MAP)", "grams": 2.5, "color": "red"},
+            {"name": "Potassium (potassium sulfate)", "grams": 1.5, "color": "green"},
+            {"name": "Calcium (calcium nitrate)", "grams": 0.7, "color": "purple"},
+            {"name": "Magnesium (Epsom salt)", "grams": 0.6, "color": "orange"}
+        ],
+        "baseOunces": 128.0
+    },
+    {
+        "title": "Lettuce",
+        "nutrients": [
+            {"name": "Nitrogen (urea)", "grams": 0.8, "color": "blue"},
+            {"name": "Phosphorus (MAP)", "grams": 1.2, "color": "red"},
+            {"name": "Potassium (potassium sulfate)", "grams": 0.9, "color": "green"},
+            {"name": "Calcium (calcium nitrate)", "grams": 0.4, "color": "purple"},
+            {"name": "Magnesium (Epsom salt)", "grams": 0.3, "color": "orange"}
+        ],
+        "baseOunces": 128.0
+    },
+    {
+        "title": "Herbs",
+        "nutrients": [
+            {"name": "Nitrogen (urea)", "grams": 1.2, "color": "blue"},
+            {"name": "Phosphorus (MAP)", "grams": 1.8, "color": "red"},
+            {"name": "Potassium (potassium sulfate)", "grams": 1.2, "color": "green"},
+            {"name": "Calcium (calcium nitrate)", "grams": 0.6, "color": "purple"},
+            {"name": "Magnesium (Epsom salt)", "grams": 0.5, "color": "orange"}
+        ],
+        "baseOunces": 128.0
+    }
+]

@@ -1,0 +1,183 @@
+// MARK: - Body
+    var body: some View {
+        NavigationView {
+            GeometryReader { geometry in
+                VStack(spacing: 0) {
+                    chartView()
+                        .frame(height: 220)
+                        .padding(.horizontal, 16)
+                    
+                    EnvironmentTabView(selectedTab: $selectedTab)
+                        .padding(.bottom, 20) // 20-point gap between top separator and dropdowns
+                    
+                    if selectedTab == "Environment" {
+                        ScrollViewReader { proxy in
+                            ScrollView {
+                                controlPanel()
+                                feedbackSection()
+                            }
+                            .padding(.horizontal, 16)
+                            .onChange(of: scrollToSection) { oldValue, newValue in
+                                if let section = newValue {
+                                    withAnimation {
+                                        proxy.scrollTo(section, anchor: .init(x: 0.5, y: 0.0))
+                                    }
+                                }
+                            }
+                        }
+                    } else if selectedTab == "Nutrients" {
+                        nutrientsSection()
+                            .padding(.horizontal, 16)
+                    }
+                    
+                    // Add connection status message
+                    if showConnectionMessage {
+                        Text(connectionMessage)
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                            .padding(.top, 5)
+                            .transition(.opacity)
+                    }
+                }
+                .navigationTitle(appTitle)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button(action: { isEditingTitle = true }) {
+                            Image(systemName: "arrow.backward")
+                                .font(.system(size: 18, weight: .semibold))
+                        }
+                    }
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        if bluetoothManager.connectedPeripheral == nil {
+                            Button(action: {
+                                if bluetoothManager.centralManager.state == .poweredOn {
+                                    showingBluetoothSheet = true
+                                    bluetoothManager.startScanning()
+                                } else {
+                                    showBluetoothAlert = true
+                                }
+                            }) {
+                                Text("Connect")
+                                    .font(.system(size: 16))
+                                    .foregroundColor(.blue)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(Color.blue.opacity(0.1))
+                                    .cornerRadius(5)
+                            }
+                        } else {
+                            Button(action: {
+                                bluetoothManager.disconnect()
+                            }) {
+                                Text("Disconnect")
+                                    .font(.system(size: 16))
+                                    .foregroundColor(.red)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(Color.red.opacity(0.1))
+                                    .cornerRadius(5)
+                            }
+                        }
+                    }
+                }
+                .foregroundColor(.black)
+                .onTapGesture {
+                    withAnimation {
+                        expandedSection = nil
+                        selectedSlider = nil
+                    }
+                }
+                .sheet(isPresented: $showingTimePicker) {
+                    if let binding = selectedTimeBinding {
+                        VStack {
+                            DatePicker("Select Time", selection: binding, displayedComponents: [.hourAndMinute])
+                                .datePickerStyle(.wheel)
+                                .labelsHidden()
+                            Button("Done") { showingTimePicker = false }
+                                .padding()
+                        }
+                        .presentationDetents([.medium])
+                    }
+                }
+                .sheet(isPresented: $showingPercentagePicker) {
+                    if let binding = selectedPercentageBinding {
+                        VStack {
+                            Picker("Select Percentage", selection: binding) {
+                                ForEach(0...100, id: \.self) { value in
+                                    Text("\(value)%").tag(Double(value))
+                                }
+                            }
+                            .pickerStyle(.wheel)
+                        }
+                        .presentationDetents([.medium])
+                    }
+                }
+                .sheet(isPresented: $showingBluetoothSheet) {
+                    BluetoothDeviceListView(bluetoothManager: bluetoothManager, showingSheet: $showingBluetoothSheet)
+                }
+                .alert(isPresented: $showBluetoothAlert) {
+                    Alert(title: Text("Bluetooth Required"), message: Text("Please enable Bluetooth in Settings."), dismissButton: .default(Text("OK")))
+                }
+                .onChange(of: selectedTab) { oldValue, newValue in
+                    withAnimation {
+                        chartType = newValue
+                    }
+                }
+                .onChange(of: bluetoothManager.connectionState) { oldValue, newValue in
+                    switch newValue {
+                    case .connecting:
+                        connectionMessage = "Connecting..."
+                        showConnectionMessage = true
+                    case .connected:
+                        if let peripheral = bluetoothManager.connectedPeripheral {
+                            connectionMessage = "Connected to \(peripheral.name ?? "Unknown Device")"
+                        } else {
+                            connectionMessage = "Connected"
+                        }
+                        showConnectionMessage = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                            showConnectionMessage = false
+                        }
+                    case .failed:
+                        connectionMessage = "Connection failed"
+                        showConnectionMessage = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                            showConnectionMessage = false
+                            bluetoothManager.connectionState = .idle
+                        }
+                    case .idle:
+                        if oldValue == .connected {
+                            connectionMessage = "Disconnected"
+                            showConnectionMessage = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                                showConnectionMessage = false
+                            }
+                        }
+                    }
+                }
+                .alert(item: $activeAlert) { alertType in
+                    switch alertType {
+                    case .environmentDelete:
+                        return Alert(
+                            title: Text("Delete Environment Profile"),
+                            message: Text("Are you sure you want to delete this environment profile?"),
+                            primaryButton: .destructive(Text("Yes")) {
+                                deleteSelectedEnvironmentProfile()
+                            },
+                            secondaryButton: .cancel(Text("No"))
+                        )
+                    case .nutrientDelete:
+                        return Alert(
+                            title: Text("Delete Nutrient Profile"),
+                            message: Text("Are you sure you want to delete this nutrient profile?"),
+                            primaryButton: .destructive(Text("Yes")) {
+                                deleteSelectedNutrientProfile()
+                            },
+                            secondaryButton: .cancel(Text("No"))
+                        )
+                    }
+                }
+            }
+        }
+    }
