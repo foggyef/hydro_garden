@@ -123,59 +123,61 @@ struct ContentView: View {
     @State private var lightSliderColor: Color = .purple
     @State private var humidifierSliderColor: Color = .orange
     @State private var scrollToSection: String? = nil
-
-    // Points for environment controls
-    @State private var fanInPoints: [(time: Date, intensity: Double, color: Color)] = []
-    @State private var fanOutPoints: [(time: Date, intensity: Double, color: Color)] = []
-    @State private var bubblerPoints: [(time: Date, intensity: Double, color: Color)] = []
-    @State private var lightPoints: [(time: Date, intensity: Double, color: Color)] = []
-    @State private var humidifierPoints: [(time: Date, intensity: Double, color: Color)] = []
-
+    
     // Mode state for each control
     @State private var lightMode: String = "slider"
     @State private var fanInMode: String = "slider"
     @State private var fanOutMode: String = "slider"
     @State private var bubblerMode: String = "slider"
     @State private var humidifierMode: String = "slider"
-
+    
+    // Function parameters for each control with added 'n' for frequency (number of peaks)
+    @State private var functionParams: [String: (a: Double, b: Double, c: Double, k: Double, n: Int)] = [
+        "Light": (a: 1.0, b: 1.0, c: 0.0, k: 2.0, n: 1),
+        "Fan In": (a: 0.8, b: 1.0, c: -2.0, k: 2.0, n: 1),
+        "Fan Out": (a: 0.7, b: 1.0, c: 2.0, k: 2.0, n: 1),
+        "Bubbler": (a: 0.9, b: 1.0, c: 0.0, k: 2.0, n: 1),
+        "Humidifier": (a: 0.6, b: 1.0, c: -1.0, k: 2.0, n: 1)
+    ]
+    
     @State private var expandedSection: String? = nil
     @State private var selectedSlider: String? = nil
     @State private var appTitle = "HydroCUBE"
     @State private var isEditingTitle = false
     @State private var userInput = ""
-
+    
     @State private var showingTimePicker = false
     @State private var showingPercentagePicker = false
     @State private var selectedTimeBinding: Binding<Date>?
     @State private var selectedPercentageBinding: Binding<Double>?
     @State private var selectedTab: String = "Environment"
-
+    
     @State private var editingControl: String? = nil
-
+    
     @State private var expandedNutrient: String? = nil
-
+    
     @State private var chartType: String = "Environment"
-
+    
     @State private var isLongPressing = false
     @State private var startTime: Date?
     @GestureState private var dragTranslation: CGFloat = 0
-
+    
     @FocusState private var focusedField: FocusedField?
-
+    
     @State private var isEditingEnvironment = false
-
+    
     // New state variable to enable editing in "Start grow" mode
     @State private var isEditingEnvironmentControls = false
-
+    
     @State private var activeAlert: AlertType? = nil
-
+    
     @State private var environmentProfiles: [EnvironmentProfile] = []
     @State private var environmentTypes: [String] = ["Load Environment"]
     @State private var selectedEnvironment = "Load Environment"
     @State private var showNewEnvironment = false
     @State private var newEnvironmentTitle = ""
     @State private var hasMadeEnvironmentEdits = false
-
+    
     @State private var nutrientProfiles: [NutrientProfile] = []
     @State private var selectedNutrientType = "What are you growing"
     @State private var nutrientTypes = ["What are you growing"]
@@ -194,20 +196,20 @@ struct ContentView: View {
     @State private var hasMadeNutrientEdits = false
     @State private var isEditingNutrientProfile = false
     @State private var npkTitle: String = "Default"
-
+    
     @State private var isTestingGrow = false
     @State private var animationProgress: Double = 0
     @State private var testGrowTimer: Timer? = nil
-
+    
     @StateObject private var bluetoothManager = BluetoothManager()
     @State private var showingBluetoothSheet = false
     @State private var showBluetoothAlert = false
     
     @State private var showConnectionMessage = false
     @State private var connectionMessage = ""
-
+    
     static let nutrientColors: [Color] = [.blue, .red, .green, .purple, .orange, .yellow, .brown, .teal]
-
+    
     @AppStorage("growStartDate") private var growStartDate: Double = 0
     
     private var growDays: Int {
@@ -219,7 +221,7 @@ struct ContentView: View {
             return Calendar.current.dateComponents([.day], from: startDate, to: now).day ?? 0
         }
     }
-
+    
     private var currentTime: Date {
         if isTestingGrow {
             let calendar = Calendar.current
@@ -232,13 +234,13 @@ struct ContentView: View {
             return Date()
         }
     }
-
+    
     private var graphData: [ChartDataPoint] {
         var data: [ChartDataPoint] = []
         
         func generateSliderPoints(start: Date, end: Date, value: Double, constant: Bool, type: String) -> [ChartDataPoint] {
             let calendar = Calendar.current
-            let now = Date()
+            let now = currentTime
             let startOfDay = calendar.startOfDay(for: now)
             let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
             
@@ -248,52 +250,98 @@ struct ContentView: View {
                     ChartDataPoint(time: endOfDay, percentage: value, type: type)
                 ]
             } else {
-                var points: [ChartDataPoint] = []
-                if start > startOfDay {
-                    points.append(ChartDataPoint(time: startOfDay, percentage: 0, type: type))
+                let timeStep: TimeInterval = 900 // 15 minutes
+                var times: [Date] = []
+                var currentTime = startOfDay
+                while currentTime <= endOfDay {
+                    times.append(currentTime)
+                    currentTime = calendar.date(byAdding: .second, value: Int(timeStep), to: currentTime)!
                 }
-                points.append(ChartDataPoint(time: start, percentage: value, type: type))
-                points.append(ChartDataPoint(time: end, percentage: value, type: type))
-                if end < endOfDay {
-                    points.append(ChartDataPoint(time: endOfDay, percentage: 0, type: type))
+                if !times.contains(start) {
+                    times.append(start)
+                }
+                if !times.contains(end) {
+                    times.append(end)
+                }
+                times = times.sorted()
+                
+                var points: [ChartDataPoint] = []
+                for time in times {
+                    let isActive: Bool
+                    if start <= end {
+                        isActive = time >= start && time <= end
+                    } else {
+                        isActive = time <= end || time >= start
+                    }
+                    let percentage = isActive ? value : 0.0
+                    points.append(ChartDataPoint(time: time, percentage: percentage, type: type))
                 }
                 return points
             }
         }
         
-        if lightMode == "points" {
-            data.append(contentsOf: lightPoints.map { ChartDataPoint(time: $0.time, percentage: $0.intensity, type: "Light") })
+        func generateFunctionPoints(for control: String) -> [ChartDataPoint] {
+            guard let params = functionParams[control], params.b != 0, params.k >= 0.5, params.n >= 1 else { return [] }
+            let a = params.a
+            let b = params.b
+            let c = params.c
+            let k = params.k
+            let n = params.n
+            let f = Double(n) / 48.0 // Frequency: n peaks over 24 hours
+            
+            let calendar = Calendar.current
+            let now = currentTime
+            let startOfDay = calendar.startOfDay(for: now)
+            let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+            let totalSeconds = endOfDay.timeIntervalSince(startOfDay)
+            
+            let step = 60.0 // Every minute
+            var points: [ChartDataPoint] = []
+            for t in stride(from: 0, to: totalSeconds, by: step) {
+                let time = startOfDay.addingTimeInterval(t)
+                let x = (t / totalSeconds) * 24 - 12 // Map to -12 to 12 hours
+                let theta = 2 * Double.pi * f * (x - c)
+                let term = sin(theta) / b
+                let yRaw = a * 100 * exp(-pow(abs(term), k))
+                let y = max(yRaw, 0)
+                points.append(ChartDataPoint(time: time, percentage: y, type: control))
+            }
+            return points
+        }
+        
+        if lightMode == "function" {
+            data.append(contentsOf: generateFunctionPoints(for: "Light"))
         } else {
             data.append(contentsOf: generateSliderPoints(start: lightStart, end: lightEnd, value: lightValue, constant: lightConstant, type: "Light"))
         }
         
-        if fanInMode == "points" {
-            data.append(contentsOf: fanInPoints.map { ChartDataPoint(time: $0.time, percentage: $0.intensity, type: "Fan In") })
+        if fanInMode == "function" {
+            data.append(contentsOf: generateFunctionPoints(for: "Fan In"))
         } else {
             data.append(contentsOf: generateSliderPoints(start: fanInStart, end: fanInEnd, value: fanInValue, constant: fanInConstant, type: "Fan In"))
         }
         
-        if fanOutMode == "points" {
-            data.append(contentsOf: fanOutPoints.map { ChartDataPoint(time: $0.time, percentage: $0.intensity, type: "Fan Out") })
+        if fanOutMode == "function" {
+            data.append(contentsOf: generateFunctionPoints(for: "Fan Out"))
         } else {
             data.append(contentsOf: generateSliderPoints(start: fanOutStart, end: fanOutEnd, value: fanOutValue, constant: fanOutConstant, type: "Fan Out"))
         }
         
-        if bubblerMode == "points" {
-            data.append(contentsOf: bubblerPoints.map { ChartDataPoint(time: $0.time, percentage: $0.intensity, type: "Bubbler") })
+        if bubblerMode == "function" {
+            data.append(contentsOf: generateFunctionPoints(for: "Bubbler"))
         } else {
             data.append(contentsOf: generateSliderPoints(start: bubblerStart, end: bubblerEnd, value: bubblerValue, constant: bubblerConstant, type: "Bubbler"))
         }
         
-        if humidifierMode == "points" {
-            data.append(contentsOf: humidifierPoints.map { ChartDataPoint(time: $0.time, percentage: $0.intensity, type: "Humidifier") })
+        if humidifierMode == "function" {
+            data.append(contentsOf: generateFunctionPoints(for: "Humidifier"))
         } else {
             data.append(contentsOf: generateSliderPoints(start: humidifierStart, end: humidifierEnd, value: humidifierValue, constant: humidifierConstant, type: "Humidifier"))
         }
         
         return data.sorted { $0.time < $1.time }
     }
-
+    
     init() {
         let loadedEnvProfiles = loadEnvironmentProfiles()
         print("Loaded environment profiles: \(loadedEnvProfiles.map { $0.title })")
@@ -307,9 +355,9 @@ struct ContentView: View {
         _nutrientTypes = State(initialValue: ["What are you growing"] + loadedNutrientProfiles.map { $0.title })
         print("Nutrient types initialized: \(_nutrientTypes.wrappedValue)")
         
-        #if DEBUG
+#if DEBUG
         UserDefaults.standard.removeObject(forKey: "growStartDate")
-        #endif
+#endif
     }
     
     private func startTestGrowAnimation() {
@@ -336,14 +384,14 @@ struct ContentView: View {
         let calendar = Calendar.current
         let now = Date()
         let startOfDay = calendar.startOfDay(for: now)
-
+        
         func dateFromHourMinute(hour: Int, minute: Int) -> Date {
             var components = calendar.dateComponents([.year, .month, .day], from: startOfDay)
             components.hour = hour
             components.minute = minute
             return calendar.date(from: components) ?? startOfDay
         }
-
+        
         return profiles.map { profile in
             EnvironmentProfile(
                 title: profile.title,
@@ -372,20 +420,20 @@ struct ContentView: View {
                 fanOutSliderColor: colorFromString(profile.fanOutSliderColor),
                 bubblerSliderColor: colorFromString(profile.bubblerSliderColor),
                 humidifierSliderColor: colorFromString(profile.humidifierSliderColor),
-                lightPoints: profile.lightPoints.map { (dateFromHourMinute(hour: $0.hour, minute: $0.minute), $0.intensity, colorFromString(profile.lightSliderColor)) },
-                fanInPoints: profile.fanInPoints.map { (dateFromHourMinute(hour: $0.hour, minute: $0.minute), $0.intensity, colorFromString(profile.fanInSliderColor)) },
-                fanOutPoints: profile.fanOutPoints.map { (dateFromHourMinute(hour: $0.hour, minute: $0.minute), $0.intensity, colorFromString(profile.fanOutSliderColor)) },
-                bubblerPoints: profile.bubblerPoints.map { (dateFromHourMinute(hour: $0.hour, minute: $0.minute), $0.intensity, colorFromString(profile.bubblerSliderColor)) },
-                humidifierPoints: profile.humidifierPoints.map { (dateFromHourMinute(hour: $0.hour, minute: $0.minute), $0.intensity, colorFromString(profile.humidifierSliderColor)) },
-                lightMode: profile.lightMode,
-                fanInMode: profile.fanInMode,
-                fanOutMode: profile.fanOutMode,
-                bubblerMode: profile.bubblerMode,
-                humidifierMode: profile.humidifierMode
+                lightPoints: [],
+                fanInPoints: [],
+                fanOutPoints: [],
+                bubblerPoints: [],
+                humidifierPoints: [],
+                lightMode: profile.lightMode == "points" ? "slider" : profile.lightMode,
+                fanInMode: profile.fanInMode == "points" ? "slider" : profile.fanInMode,
+                fanOutMode: profile.fanOutMode == "points" ? "slider" : profile.fanOutMode,
+                bubblerMode: profile.bubblerMode == "points" ? "slider" : profile.bubblerMode,
+                humidifierMode: profile.humidifierMode == "points" ? "slider" : profile.humidifierMode
             )
         }
     }
-
+    
     private func convertToNutrientProfiles(_ profiles: [CodableNutrientProfile]) -> [NutrientProfile] {
         return profiles.map { profile in
             NutrientProfile(
@@ -397,7 +445,7 @@ struct ContentView: View {
             )
         }
     }
-
+    
     private func deleteSelectedEnvironmentProfile() {
         if let index = environmentProfiles.firstIndex(where: { $0.title == selectedEnvironment }) {
             environmentProfiles.remove(at: index)
@@ -410,7 +458,7 @@ struct ContentView: View {
         newEnvironmentTitle = ""
         hasMadeEnvironmentEdits = false
     }
-
+    
     private func deleteSelectedNutrientProfile() {
         if let index = nutrientProfiles.firstIndex(where: { $0.title == selectedNutrientType }) {
             nutrientProfiles.remove(at: index)
@@ -424,7 +472,7 @@ struct ContentView: View {
         newNutrients = [Nutrient(name: "", grams: 0.0, color: Self.nutrientColors[0])]
         hasMadeNutrientEdits = false
     }
-
+    
     private func calculateNutrientAmounts(for amount: String, profile: NutrientProfile) -> ([Nutrient], Double, Double) {
         var selectedOunces: Double = 0.0
         if amount != "Mixing size" {
@@ -444,48 +492,17 @@ struct ContentView: View {
         let totalGrams = scaledNutrients.reduce(0.0) { $0 + $1.grams }
         return (scaledNutrients, totalGrams, 0.0)
     }
-
+    
     private func formatPercentage(_ value: Double) -> String {
         return String(format: "%.0f%%", value)
     }
-
+    
     private func formatTime(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm"
         return formatter.string(from: date)
     }
-
-    private func formattedTime(for date: Date) -> String {
-        formatTime(date)
-    }
-
-    private func interpolatedIntensity(at time: Date, from points: [(time: Date, intensity: Double, color: Color)]) -> Double {
-        if points.isEmpty {
-            return 0.0
-        }
-        let sortedPoints = points.sorted { $0.time < $1.time }
-        if time < sortedPoints.first!.time || time > sortedPoints.last!.time {
-            return 0.0
-        }
-        for i in 0..<sortedPoints.count - 1 {
-            let p1 = sortedPoints[i]
-            let p2 = sortedPoints[i + 1]
-            if time >= p1.time && time <= p2.time {
-                let timeInterval = p2.time.timeIntervalSince(p1.time)
-                if timeInterval == 0 {
-                    return p1.intensity
-                }
-                let timeFraction = time.timeIntervalSince(p1.time) / timeInterval
-                let intensityDifference = p2.intensity - p1.intensity
-                return p1.intensity + intensityDifference * timeFraction
-            }
-        }
-        if let point = sortedPoints.first(where: { $0.time == time }) {
-            return point.intensity
-        }
-        return 0.0
-    }
-
+    
     var body: some View {
         NavigationView {
             GeometryReader { geometry in
@@ -657,9 +674,7 @@ struct ContentView: View {
                         return Alert(
                             title: Text("Delete Nutrient Profile"),
                             message: Text("Are you sure you want to delete this nutrient profile?"),
-                            primaryButton: .destructive(Text("Yes")) {
-                                deleteSelectedNutrientProfile()
-                            },
+                            primaryButton: .destructive(Text("Yes")) { deleteSelectedNutrientProfile() },
                             secondaryButton: .cancel(Text("No"))
                         )
                     case .selectEnvironment:
@@ -683,16 +698,16 @@ struct ContentView: View {
             }
         }
     }
-
+    
     @ViewBuilder
     private func chartView() -> some View {
         GeometryReader { geometry in
             let width = geometry.size.width
             let baseOffset: CGFloat = chartType == "Environment" ? 0 : -width
-
+            
             HStack(spacing: 0) {
                 let calendar = Calendar.current
-                let now = Date()
+                let now = currentTime
                 let startOfDay = calendar.startOfDay(for: now)
                 let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
                 
@@ -754,7 +769,7 @@ struct ContentView: View {
                     .frame(width: width, height: 200)
                     .background(Color.white)
                     .padding(.vertical, 10)
-
+                
                 if selectedNutrientType != "What are you growing",
                    let profile = nutrientProfiles.first(where: { $0.title == selectedNutrientType }) {
                     let (nutrients, _, _) = calculateNutrientAmounts(for: selectedAmount, profile: profile)
@@ -763,8 +778,8 @@ struct ContentView: View {
                         let maxLabelLength = 8
                         let chartData = nutrients.map { nutrient in
                             let shortName = nutrient.name.count > maxLabelLength
-                                ? String(nutrient.name.prefix(maxLabelLength - 3) + "...")
-                                : nutrient.name
+                            ? String(nutrient.name.prefix(maxLabelLength - 3) + "...")
+                            : nutrient.name
                             return (label: shortName, fullName: nutrient.name, grams: nutrient.grams, color: nutrient.color)
                         }
                         
@@ -898,7 +913,7 @@ struct ContentView: View {
         .frame(height: 220)
         .clipped()
     }
-
+    
     @ViewBuilder
     private func environmentSelectionView() -> some View {
         if growStartDate != 0 && selectedEnvironment != "Load Environment" {
@@ -993,11 +1008,6 @@ struct ContentView: View {
                                     fanOutSliderColor = profile.fanOutSliderColor
                                     bubblerSliderColor = profile.bubblerSliderColor
                                     humidifierSliderColor = profile.humidifierSliderColor
-                                    lightPoints = profile.lightPoints
-                                    fanInPoints = profile.fanInPoints
-                                    fanOutPoints = profile.fanOutPoints
-                                    bubblerPoints = profile.bubblerPoints
-                                    humidifierPoints = profile.humidifierPoints
                                     lightMode = profile.lightMode
                                     fanInMode = profile.fanInMode
                                     fanOutMode = profile.fanOutMode
@@ -1091,11 +1101,11 @@ struct ContentView: View {
                                                 fanOutSliderColor: fanOutSliderColor,
                                                 bubblerSliderColor: bubblerSliderColor,
                                                 humidifierSliderColor: humidifierSliderColor,
-                                                lightPoints: lightPoints,
-                                                fanInPoints: fanInPoints,
-                                                fanOutPoints: fanOutPoints,
-                                                bubblerPoints: bubblerPoints,
-                                                humidifierPoints: humidifierPoints,
+                                                lightPoints: [],
+                                                fanInPoints: [],
+                                                fanOutPoints: [],
+                                                bubblerPoints: [],
+                                                humidifierPoints: [],
                                                 lightMode: lightMode,
                                                 fanInMode: fanInMode,
                                                 fanOutMode: fanOutMode,
@@ -1142,10 +1152,6 @@ struct ContentView: View {
             constant: lightMode == "slider" ? $lightConstant : nil,
             color: lightMode == "slider" ? lightSliderColor : nil,
             colorBinding: $lightSliderColor,
-            points: $lightPoints,
-            defaultColor: lightSliderColor,
-            canHaveZeroPoints: true,
-            sliderValueBinding: $lightValue,
             mode: $lightMode
         )
         makeControlRow(
@@ -1156,10 +1162,6 @@ struct ContentView: View {
             constant: fanInMode == "slider" ? $fanInConstant : nil,
             color: fanInMode == "slider" ? fanInSliderColor : nil,
             colorBinding: $fanInSliderColor,
-            points: $fanInPoints,
-            defaultColor: fanInSliderColor,
-            canHaveZeroPoints: true,
-            sliderValueBinding: $fanInValue,
             mode: $fanInMode
         )
         makeControlRow(
@@ -1170,10 +1172,6 @@ struct ContentView: View {
             constant: fanOutMode == "slider" ? $fanOutConstant : nil,
             color: fanOutMode == "slider" ? fanOutSliderColor : nil,
             colorBinding: $fanOutSliderColor,
-            points: $fanOutPoints,
-            defaultColor: fanOutSliderColor,
-            canHaveZeroPoints: true,
-            sliderValueBinding: $fanOutValue,
             mode: $fanOutMode
         )
         makeControlRow(
@@ -1184,10 +1182,6 @@ struct ContentView: View {
             constant: bubblerMode == "slider" ? $bubblerConstant : nil,
             color: bubblerMode == "slider" ? bubblerSliderColor : nil,
             colorBinding: $bubblerSliderColor,
-            points: $bubblerPoints,
-            defaultColor: bubblerSliderColor,
-            canHaveZeroPoints: true,
-            sliderValueBinding: $bubblerValue,
             mode: $bubblerMode
         )
         makeControlRow(
@@ -1198,10 +1192,6 @@ struct ContentView: View {
             constant: humidifierMode == "slider" ? $humidifierConstant : nil,
             color: humidifierMode == "slider" ? humidifierSliderColor : nil,
             colorBinding: $humidifierSliderColor,
-            points: $humidifierPoints,
-            defaultColor: humidifierSliderColor,
-            canHaveZeroPoints: true,
-            sliderValueBinding: $humidifierValue,
             mode: $humidifierMode
         )
     }
@@ -1214,7 +1204,7 @@ struct ContentView: View {
             controlRowsView()
         }
     }
-
+    
     @ViewBuilder
     private func feedbackSection() -> some View {
         ZStack(alignment: .topLeading) {
@@ -1248,7 +1238,7 @@ struct ContentView: View {
         )
         .padding()
     }
-
+    
     @ViewBuilder
     private func nutrientsSection() -> some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -1290,7 +1280,7 @@ struct ContentView: View {
                             }
                         } else {
                             growStartDate = 0
-                            isEditingEnvironmentControls = false // Reset editing mode when stopping
+                            isEditingEnvironmentControls = false
                             print("Stop pressed, start date reset to 0")
                         }
                     }) {
@@ -1403,7 +1393,7 @@ struct ContentView: View {
                         )
                     }
                 }
-
+                
                 Menu {
                     ForEach(amounts.filter { $0 != "Mixing size" }, id: \.self) { amount in
                         Button(amount) {
@@ -1430,7 +1420,7 @@ struct ContentView: View {
                             .stroke(Color.gray, lineWidth: 1)
                     )
                 }
-
+                
                 nutrientsSectionButtons()
             }
             .frame(maxWidth: .infinity)
@@ -1448,7 +1438,7 @@ struct ContentView: View {
                         newNutrientTitle = profile.title
                         let nextColorIndex = profile.nutrients.count % Self.nutrientColors.count
                         newNutrients = profile.nutrients.map { Nutrient(name: $0.name, grams: $0.grams, color: $0.color) } +
-                                       [Nutrient(name: "", grams: 0.0, color: Self.nutrientColors[nextColorIndex])]
+                            [Nutrient(name: "", grams: 0.0, color: Self.nutrientColors[nextColorIndex])]
                         hasMadeNutrientEdits = false
                     }
                 }) {
@@ -1537,14 +1527,14 @@ struct ContentView: View {
             nutrientFieldsList()
         }
     }
-
+    
     @ViewBuilder
     private func nutrientFieldsList() -> some View {
         ForEach(newNutrients.indices, id: \.self) { index in
             nutrientFieldRow(index: index)
         }
     }
-
+    
     @ViewBuilder
     private func nutrientFieldRow(index: Int) -> some View {
         let nutrient = newNutrients[index]
@@ -1556,12 +1546,12 @@ struct ContentView: View {
                     updateNutrientsAfterChange(at: index)
                 }
             ))
-                .focused($focusedField, equals: .name(nutrient.id))
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .frame(maxWidth: 200)
-                .foregroundColor(nutrient.color)
-                .tint(.black)
-
+            .focused($focusedField, equals: .name(nutrient.id))
+            .textFieldStyle(RoundedBorderTextFieldStyle())
+            .frame(maxWidth: 200)
+            .foregroundColor(nutrient.color)
+            .tint(.black)
+            
             TextField("grams", text: Binding(
                 get: { nutrient.grams == 0.0 ? "" : String(nutrient.grams) },
                 set: { newValue in
@@ -1573,11 +1563,11 @@ struct ContentView: View {
                     }
                 }
             ))
-                .focused($focusedField, equals: .grams(nutrient.id))
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .frame(width: 80)
-                .keyboardType(.decimalPad)
-                .tint(.black)
+            .focused($focusedField, equals: .grams(nutrient.id))
+            .textFieldStyle(RoundedBorderTextFieldStyle())
+            .frame(width: 80)
+            .keyboardType(.decimalPad)
+            .tint(.black)
         }
         .id(nutrient.id)
     }
@@ -1593,7 +1583,7 @@ struct ContentView: View {
         }
         updateHasMadeNutrientEdits()
     }
-
+    
     private func updateHasMadeNutrientEdits() {
         if isEditingNutrientProfile, let profile = nutrientProfiles.first(where: { $0.title == selectedNutrientType }) {
             hasMadeNutrientEdits = newNutrientTitle != profile.title || newNutrients != profile.nutrients
@@ -1601,7 +1591,7 @@ struct ContentView: View {
             hasMadeNutrientEdits = !newNutrientTitle.isEmpty || newNutrients.contains { !$0.name.isEmpty || $0.grams > 0 }
         }
     }
-
+    
     @ViewBuilder
     private func nutrientProfileDisplayView() -> some View {
         if let profile = nutrientProfiles.first(where: { $0.title == selectedNutrientType }) {
@@ -1621,7 +1611,7 @@ struct ContentView: View {
             .padding(.leading, 16)
         }
     }
-
+    
     @ViewBuilder
     private func makeControlRow(
         title: String,
@@ -1631,21 +1621,15 @@ struct ContentView: View {
         constant: Binding<Bool>? = nil,
         color: Color? = nil,
         colorBinding: Binding<Color>,
-        points: Binding<[(time: Date, intensity: Double, color: Color)]>,
-        defaultColor: Color,
-        canHaveZeroPoints: Bool,
-        sliderValueBinding: Binding<Double>,
         mode: Binding<String>
     ) -> some View {
         VStack(spacing: 10) {
             summaryRow(
                 title: title,
-                points: points,
                 constant: constant,
                 start: start,
                 end: end,
                 isExpanded: expandedSection == title,
-                sliderValueBinding: sliderValueBinding,
                 colorBinding: colorBinding,
                 mode: mode
             )
@@ -1662,13 +1646,13 @@ struct ContentView: View {
                     )
                     .padding(.vertical, 5)
                 
-                if mode.wrappedValue == "points" {
-                    pointsModeControls(
+                if mode.wrappedValue == "function" {
+                    functionModeControls(
                         title: title,
-                        points: points,
-                        defaultColor: defaultColor,
-                        canHaveZeroPoints: canHaveZeroPoints,
-                        isEditing: editingControl == title
+                        functionParams: Binding(
+                            get: { functionParams[title] ?? (a: 1.0, b: 10.0, c: 0.0, k: 2.0, n: 1) },
+                            set: { functionParams[title] = $0 }
+                        )
                     )
                 } else {
                     simpleModeControls(
@@ -1678,8 +1662,7 @@ struct ContentView: View {
                         colorBinding: colorBinding,
                         start: start,
                         end: end,
-                        constant: constant,
-                        points: points
+                        constant: constant
                     )
                 }
             }
@@ -1708,12 +1691,10 @@ struct ContentView: View {
     @ViewBuilder
     private func summaryRow(
         title: String,
-        points: Binding<[(time: Date, intensity: Double, color: Color)]>,
         constant: Binding<Bool>?,
         start: Binding<Date>?,
         end: Binding<Date>?,
         isExpanded: Bool,
-        sliderValueBinding: Binding<Double>,
         colorBinding: Binding<Color>,
         mode: Binding<String>
     ) -> some View {
@@ -1746,23 +1727,19 @@ struct ContentView: View {
                     }
                     
                     Button(action: {
-                        if mode.wrappedValue != "points" {
-                            if points.wrappedValue.isEmpty {
-                                let currentTime = Date()
-                                let currentValue = sliderValueBinding.wrappedValue
-                                let currentColor = colorBinding.wrappedValue
-                                points.wrappedValue = [(time: currentTime, intensity: currentValue, color: currentColor)]
+                        if mode.wrappedValue != "function" {
+                            mode.wrappedValue = "function"
+                            if editingControl == title {
+                                editingControl = nil
                             }
-                            mode.wrappedValue = "points"
-                            editingControl = title
                         }
                     }) {
-                        Text("Points")
+                        Text("Function")
                             .font(.system(size: 14))
-                            .foregroundColor(mode.wrappedValue == "points" ? .white : .blue)
+                            .foregroundColor(mode.wrappedValue == "function" ? .white : .blue)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 5)
-                            .background(mode.wrappedValue == "points" ? Color.blue : Color.clear)
+                            .background(mode.wrappedValue == "function" ? Color.blue : Color.clear)
                             .cornerRadius(5)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 5)
@@ -1775,28 +1752,8 @@ struct ContentView: View {
             
             Spacer()
             
-            if isExpanded && mode.wrappedValue == "points" && (growStartDate == 0 || isEditingEnvironmentControls) {
-                Button(action: {
-                    withAnimation {
-                        editingControl = (editingControl == title) ? nil : title
-                    }
-                }) {
-                    Image(systemName: editingControl == title ? "checkmark" : "pencil")
-                        .font(.system(size: 20, weight: .medium))
-                        .foregroundColor(.blue)
-                        .padding(4)
-                }
-            } else if !isExpanded {
-                if mode.wrappedValue == "points" {
-                    let currentPercentage = interpolatedIntensity(at: currentTime, from: points.wrappedValue)
-                    HStack(spacing: 5) {
-                        Text(String(format: "%.0f%%", currentPercentage))
-                            .font(.system(size: 17))
-                            .foregroundColor(colorBinding.wrappedValue)
-                        GraphSymbolView(color: colorBinding.wrappedValue)
-                            .frame(width: 40, height: 20)
-                    }
-                } else if let constant = constant, let start = start, let end = end {
+            if !isExpanded {
+                if let constant = constant, let start = start, let end = end {
                     if constant.wrappedValue {
                         Text("24/7")
                             .font(.system(size: 17))
@@ -1812,22 +1769,6 @@ struct ContentView: View {
     }
     
     @ViewBuilder
-    private func GraphSymbolView(color: Color) -> some View {
-        GeometryReader { geometry in
-            let width = geometry.size.width
-            let height = geometry.size.height
-            
-            Path { path in
-                path.move(to: CGPoint(x: 0, y: height))
-                path.addLine(to: CGPoint(x: width * 0.25, y: height * 0.25))
-                path.addLine(to: CGPoint(x: width * 0.75, y: height * 0.75))
-                path.addLine(to: CGPoint(x: width, y: 0))
-            }
-            .stroke(color, style: StrokeStyle(lineWidth: 2))
-        }
-    }
-
-    @ViewBuilder
     private func simpleModeControls(
         title: String,
         value: Binding<Double>?,
@@ -1835,8 +1776,7 @@ struct ContentView: View {
         colorBinding: Binding<Color>?,
         start: Binding<Date>?,
         end: Binding<Date>?,
-        constant: Binding<Bool>?,
-        points: Binding<[(time: Date, intensity: Double, color: Color)]>
+        constant: Binding<Bool>?
     ) -> some View {
         if let value = value, let color = color, let start = start, let end = end, let constant = constant {
             HStack {
@@ -1866,7 +1806,7 @@ struct ContentView: View {
             .padding(.top, 5)
         }
     }
-
+    
     @ViewBuilder
     private func timePickerRow(
         start: Binding<Date>,
@@ -1927,190 +1867,96 @@ struct ContentView: View {
             .disabled(growStartDate != 0 && !isEditingEnvironmentControls)
         }
     }
-
+    
     @ViewBuilder
-    private func pointsModeControls(
+    private func functionModeControls(
         title: String,
-        points: Binding<[(time: Date, intensity: Double, color: Color)]>,
-        defaultColor: Color,
-        canHaveZeroPoints: Bool,
-        isEditing: Bool
+        functionParams: Binding<(a: Double, b: Double, c: Double, k: Double, n: Int)>
     ) -> some View {
-        let currentPoints: [(time: Date, intensity: Double, color: Color)] = {
-            if isEditing {
-                return points.wrappedValue.isEmpty && !canHaveZeroPoints
-                    ? [(time: Date(), intensity: 0.0, color: defaultColor)]
-                    : points.wrappedValue
-            } else {
-                let validPoints = points.wrappedValue.filter { $0.intensity != 0.0 }
-                return validPoints.isEmpty && !canHaveZeroPoints
-                    ? [(time: Date(), intensity: 0.0, color: defaultColor)]
-                    : validPoints
-            }
-        }()
+        let a = functionParams.a.wrappedValue
+        let b = functionParams.b.wrappedValue
+        let c = functionParams.c.wrappedValue
+        let k = functionParams.k.wrappedValue
+        let n = functionParams.n.wrappedValue
+        let difference = a * 100 * (1 - exp(-pow(1 / b, k)))
+        let widthPercentage = computeWidth(a: a, b: b, c: c, k: k, n: n)
+        let hour = (c + 12) * (23.0 / 24.0) + 1
+        let displayHour = Int(hour) % 24
+        let hourString = String(format: "%02d", displayHour)
         
-        VStack(alignment: .leading, spacing: 20) {
-            ForEach(currentPoints.indices, id: \.self) { index in
-                VStack(spacing: 0) {
-                    pointRow(
-                        index: index,
-                        title: title,
-                        point: Binding(
-                            get: { currentPoints[index] },
-                            set: { newValue in
-                                points.wrappedValue[index] = newValue
-                            }
-                        ),
-                        points: points,
-                        defaultColor: defaultColor,
-                        canHaveZeroPoints: canHaveZeroPoints,
-                        isEditing: isEditing
-                    )
-                    
-                    if index < currentPoints.count - 1 {
-                        Rectangle()
-                            .frame(height: 1)
-                            .foregroundStyle(
-                                LinearGradient(
-                                    gradient: Gradient(colors: [.gray.opacity(0.2), .clear]),
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
-                            .padding(.vertical, 5)
-                    }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func pointRow(
-        index: Int,
-        title: String,
-        point: Binding<(time: Date, intensity: Double, color: Color)>,
-        points: Binding<[(time: Date, intensity: Double, color: Color)]>,
-        defaultColor: Color,
-        canHaveZeroPoints: Bool,
-        isEditing: Bool
-    ) -> some View {
-        HStack(spacing: isEditing ? 15 : 10) {
-            Text("\(index + 1).")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(.gray.opacity(0.5))
-                .frame(width: 25, alignment: .leading)
-            
-            if isEditing {
-                TextField("HH:mm", text: Binding(
-                    get: {
-                        if index == points.wrappedValue.count - 1 && point.wrappedValue.intensity == 0.0 {
-                            return ""
-                        } else {
-                            return formattedTime(for: point.wrappedValue.time)
-                        }
-                    },
-                    set: { newValue in
-                        if isEditing && (growStartDate == 0 || isEditingEnvironmentControls) {
-                            let formatter = DateFormatter()
-                            formatter.dateFormat = "HH:mm"
-                            let newDate = formatter.date(from: newValue) ?? point.wrappedValue.time
-                            let calendar = Calendar.current
-                            let currentComponents = calendar.dateComponents([.year, .month, .day], from: point.wrappedValue.time)
-                            var newComponents = calendar.dateComponents([.hour, .minute], from: newDate)
-                            newComponents.year = currentComponents.year
-                            newComponents.month = currentComponents.month
-                            newComponents.day = currentComponents.day
-                            let updatedDate = calendar.date(from: newComponents) ?? point.wrappedValue.time
-                            point.wrappedValue = (time: updatedDate, intensity: point.wrappedValue.intensity, color: point.wrappedValue.color)
-                            points.wrappedValue = points.wrappedValue.sorted { $0.time < $1.time }
-                        }
-                    }
-                ))
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .keyboardType(.numbersAndPunctuation)
-                    .frame(width: 100, height: 30)
-                    .foregroundColor(index == points.wrappedValue.count - 1 && point.wrappedValue.intensity == 0.0 ? .gray : .black)
-                    .tint(.black)
-                    .disabled(!(isEditing && (growStartDate == 0 || isEditingEnvironmentControls)))
-                
-                Spacer()
-                
-                HStack(spacing: 5) {
-                    TextField("%", text: Binding(
-                        get: {
-                            if index == points.wrappedValue.count - 1 && point.wrappedValue.intensity == 0.0 {
-                                return ""
-                            } else {
-                                return String(format: "%.0f", point.wrappedValue.intensity)
-                            }
-                        },
-                        set: { newValue in
-                            if isEditing && (growStartDate == 0 || isEditingEnvironmentControls) {
-                                if let value = Double(newValue), value >= 0, value <= 100 {
-                                    point.wrappedValue = (time: point.wrappedValue.time, intensity: value, color: point.wrappedValue.color)
-                                    selectedSlider = title
-                                } else if newValue.isEmpty {
-                                    point.wrappedValue = (time: point.wrappedValue.time, intensity: 0.0, color: point.wrappedValue.color)
-                                }
-                            }
-                        }
-                    ))
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .keyboardType(.decimalPad)
-                        .frame(width: 80)
-                        .multilineTextAlignment(.trailing)
-                        .foregroundColor(point.wrappedValue.color)
-                        .tint(.black)
-                        .disabled(!(isEditing && (growStartDate == 0 || isEditingEnvironmentControls)))
-                    
-                    Text("%")
-                        .font(.system(size: 17))
-                        .foregroundColor(.black)
-                }
-                
-                Spacer()
-            } else {
-                if index != points.wrappedValue.count - 1 || point.wrappedValue.intensity != 0.0 {
-                    Text(formattedTime(for: point.wrappedValue.time))
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.black)
-                        .frame(width: 60, alignment: .leading)
-                    
-                    Spacer()
-                    
-                    let intensityString = point.wrappedValue.intensity == 0.0
-                        ? "0%"
-                        : String(format: "%.0f%%", point.wrappedValue.intensity)
-                    
-                    Text(intensityString)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(point.wrappedValue.color)
-                        .frame(width: 50, alignment: .trailing)
-                    
-                    Spacer()
-                } else {
-                    EmptyView()
-                }
+        VStack(spacing: 10) {
+            VStack {
+                Text("Amplitude: \(difference, specifier: "%.2f")%")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Slider(value: functionParams.a, in: 0...1, step: 0.01)
+                    .disabled(growStartDate != 0 && !isEditingEnvironmentControls)
             }
             
-            if isEditing && points.wrappedValue.count > 1 && index < points.wrappedValue.count - 1 {
-                Button(action: {
-                    withAnimation {
-                        var updatedPoints = points.wrappedValue
-                        updatedPoints.remove(at: index)
-                        points.wrappedValue = updatedPoints
-                    }
-                }) {
-                    Image(systemName: "xmark")
-                        .foregroundColor(.red)
-                        .frame(width: 30, height: 30)
-                }
-                .disabled(!(growStartDate == 0 || isEditingEnvironmentControls))
+            VStack {
+                Text("Width: \(widthPercentage, specifier: "%.1f")% ")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Slider(value: functionParams.b, in: 0.1...10.0, step: 0.01)
+                    .disabled(growStartDate != 0 && !isEditingEnvironmentControls)
+            }
+            
+            VStack {
+                Text("Shift: \(hourString)")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Slider(value: functionParams.c, in: -12...12, step: 0.1)
+                    .disabled(growStartDate != 0 && !isEditingEnvironmentControls)
+            }
+            
+            VStack {
+                Text("Shape: \(k, specifier: "%.2f")")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Slider(value: functionParams.k, in: 2.0...4.0, step: 0.1)
+                    .disabled(growStartDate != 0 && !isEditingEnvironmentControls)
+            }
+            
+            VStack {
+                Text("Frequency: \(n)")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Slider(value: Binding(
+                    get: { Double(n) },
+                    set: { functionParams.n.wrappedValue = Int($0) }
+                ), in: 1...12, step: 1)
+                    .disabled(growStartDate != 0 && !isEditingEnvironmentControls)
             }
         }
-        .padding(.vertical, isEditing ? 5 : 2)
+        .padding()
     }
-
+    
+    private func computeWidth(a: Double, b: Double, c: Double, k: Double, n: Int) -> Double {
+        let f = Double(n) / 48.0
+        let threshold = a * 100 * 0.9
+        let totalMinutes = 24 * 60
+        var activeIntervals: [(start: Int, end: Int)] = []
+        var isActive = false
+        var startMinute = 0
+        
+        for t in 0...totalMinutes {
+            let x = (Double(t) / Double(totalMinutes)) * 24 - 12
+            let theta = 2 * Double.pi * f * (x - c)
+            let term = sin(theta) / b
+            let y = a * 100 * exp(-pow(abs(term), k))
+            
+            if y >= threshold && !isActive {
+                isActive = true
+                startMinute = t
+            } else if y < threshold && isActive {
+                isActive = false
+                activeIntervals.append((start: startMinute, end: t))
+            }
+        }
+        
+        if isActive {
+            activeIntervals.append((start: startMinute, end: totalMinutes))
+        }
+        
+        let activeMinutes = activeIntervals.reduce(0) { $0 + ($1.end - $1.start) }
+        return (Double(activeMinutes) / Double(totalMinutes)) * 100
+    }
+    
     @ViewBuilder
     private func EnvironmentTabView(selectedTab: Binding<String>) -> some View {
         VStack(spacing: 0) {
@@ -2143,10 +1989,82 @@ struct ContentView: View {
                 .padding(.vertical, 5)
         }
     }
-}
+    
+    // MARK: - Helper Functions
+    
+    private func loadEnvironmentProfiles() -> [CodableEnvironmentProfile] {
+        guard let url = Bundle.main.url(forResource: "environmentProfiles", withExtension: "json") else {
+            print("Failed to locate environmentProfiles.json in bundle.")
+            return []
+        }
+        do {
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            return try decoder.decode([CodableEnvironmentProfile].self, from: data)
+        } catch {
+            print("Failed to decode environment profiles: \(error)")
+            return []
+        }
+    }
 
-struct ContentView_Previews: PreviewProvider {
-    static var previews: some View {
-        ContentView()
+    private func loadNutrientProfiles() -> [CodableNutrientProfile] {
+        guard let url = Bundle.main.url(forResource: "nutrientProfiles", withExtension: "json") else {
+            print("Failed to locate nutrientProfiles.json in bundle.")
+            return []
+        }
+        do {
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            return try decoder.decode([CodableNutrientProfile].self, from: data)
+        } catch {
+            print("Failed to decode nutrient profiles: \(error)")
+            return []
+        }
+    }
+    
+    private func saveEnvironmentProfiles(profiles: [EnvironmentProfile]) {
+        // Placeholder for saving environment profiles
+    }
+    
+    private func saveNutrientProfiles(profiles: [NutrientProfile]) {
+        // Placeholder for saving nutrient profiles
+    }
+    
+    private func colorFromString(_ colorString: String) -> Color {
+        switch colorString.lowercased() {
+        case "blue": return .blue
+        case "red": return .red
+        case "green": return .green
+        case "purple": return .purple
+        case "orange": return .orange
+        case "pink": return .pink
+        case "cyan": return .cyan
+        case "yellow": return .yellow
+        case "brown": return .brown
+        case "teal": return .teal
+        default: return .gray
+        }
+    }
+    
+    private func stringFromColor(_ color: Color) -> String {
+        switch color.description.lowercased() {
+        case Color.blue.description: return "blue"
+        case Color.red.description: return "red"
+        case Color.green.description: return "green"
+        case Color.purple.description: return "purple"
+        case Color.orange.description: return "orange"
+        case Color.pink.description: return "pink"
+        case Color.cyan.description: return "cyan"
+        case Color.yellow.description: return "yellow"
+        case Color.brown.description: return "brown"
+        case Color.teal.description: return "teal"
+        default: return "gray"
+        }
+    }
+    
+    struct ContentView_Previews: PreviewProvider {
+        static var previews: some View {
+            ContentView()
+        }
     }
 }
