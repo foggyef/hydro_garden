@@ -84,7 +84,7 @@ struct BluetoothDeviceListView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Cancel") {
-                        bluetoothManager.centralManager.stopScan()
+                        bluetoothManager.stopScanning()
                         showingSheet = false
                     }
                 }

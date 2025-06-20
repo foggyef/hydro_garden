@@ -11,10 +11,15 @@ enum ConnectionState {
 
 class BluetoothManager: NSObject, ObservableObject {
     @Published var discoveredPeripherals: [CBPeripheral] = []
-    @Published var connectedPeripheral: CBPeripheral? // Tracks the connected peripheral
-    @Published var connectionState: ConnectionState = .idle // Tracks connection status
+    @Published var connectedPeripheral: CBPeripheral?
+    @Published var connectionState: ConnectionState = .idle
     
     var centralManager: CBCentralManager!
+    private var targetCharacteristic: CBCharacteristic? // Store the writable characteristic
+    
+    // UUIDs for the service and characteristics
+    private let serviceUUID = CBUUID(string: "6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
+    private let writeCharacteristicUUID = CBUUID(string: "6E400002-B5A3-F393-E0A9-E50E24DCCA9E") // Adjust if needed
     
     override init() {
         super.init()
@@ -23,7 +28,7 @@ class BluetoothManager: NSObject, ObservableObject {
     
     func startScanning() {
         if centralManager.state == .poweredOn {
-            centralManager.scanForPeripherals(withServices: [CBUUID(string: "6E400001-B5A3-F393-E0A9-E50E24DCCA9E")], options: nil)
+            centralManager.scanForPeripherals(withServices: [serviceUUID], options: nil)
         }
     }
     
@@ -32,7 +37,7 @@ class BluetoothManager: NSObject, ObservableObject {
     }
     
     func connect(to peripheral: CBPeripheral) {
-        connectionState = .connecting // Set state to connecting
+        connectionState = .connecting
         centralManager.connect(peripheral, options: nil)
     }
     
@@ -40,6 +45,21 @@ class BluetoothManager: NSObject, ObservableObject {
         if let peripheral = connectedPeripheral {
             centralManager.cancelPeripheralConnection(peripheral)
         }
+    }
+    
+    // Function to send a message to the connected device
+    func sendMessage(_ message: String) {
+        guard let peripheral = connectedPeripheral,
+              let characteristic = targetCharacteristic,
+              let data = message.data(using: .utf8) else {
+            print("Cannot send message: Peripheral or characteristic not ready, or message encoding failed")
+            return
+        }
+        
+        // Check if the characteristic supports writing
+        let writeType: CBCharacteristicWriteType = characteristic.properties.contains(.write) ? .withResponse : .withoutResponse
+        peripheral.writeValue(data, for: characteristic, type: writeType)
+        print("Sent message: \(message)")
     }
 }
 
@@ -49,6 +69,7 @@ extension BluetoothManager: CBCentralManagerDelegate {
             // Bluetooth is ready
         } else {
             // Handle Bluetooth off, unauthorized, etc.
+            print("Bluetooth state: \(central.state)")
         }
     }
     
@@ -62,6 +83,10 @@ extension BluetoothManager: CBCentralManagerDelegate {
         connectedPeripheral = peripheral
         connectionState = .connected
         print("Connected to \(peripheral.name ?? "Unknown Device")")
+        
+        // Set the peripheral's delegate and start discovering services
+        peripheral.delegate = self
+        peripheral.discoverServices([serviceUUID])
     }
     
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
@@ -72,8 +97,58 @@ extension BluetoothManager: CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         if connectedPeripheral == peripheral {
             connectedPeripheral = nil
+            targetCharacteristic = nil // Clear the characteristic
             connectionState = .idle
         }
         print("Disconnected from \(peripheral.name ?? "Unknown Device")")
+    }
+}
+
+extension BluetoothManager: CBPeripheralDelegate {
+    func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        if let error = error {
+            print("Error discovering services: \(error.localizedDescription)")
+            return
+        }
+        
+        guard let services = peripheral.services else { return }
+        for service in services {
+            if service.uuid == serviceUUID {
+                // Discover characteristics for the target service
+                peripheral.discoverCharacteristics([writeCharacteristicUUID], for: service)
+            }
+        }
+    }
+    
+    func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        if let error = error {
+            print("Error discovering characteristics: \(error.localizedDescription)")
+            return
+        }
+        
+        guard let characteristics = service.characteristics else { return }
+        for characteristic in characteristics {
+            if characteristic.uuid == writeCharacteristicUUID {
+                targetCharacteristic = characteristic
+                print("Found writable characteristic: \(characteristic.uuid)")
+                
+                // Optionally, enable notifications if the characteristic supports it
+                if characteristic.properties.contains(.notify) {
+                    peripheral.setNotifyValue(true, for: characteristic)
+                }
+            }
+        }
+    }
+    
+    // Optional: Handle incoming data if the characteristic supports notifications
+    func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+        if let error = error {
+            print("Error receiving data: \(error.localizedDescription)")
+            return
+        }
+        
+        if let value = characteristic.value, let message = String(data: value, encoding: .utf8) {
+            print("Received message: \(message)")
+        }
     }
 }
