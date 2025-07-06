@@ -2062,6 +2062,64 @@ struct ContentView: View {
         }
     }
     
+    // MARK: - Bluetooth Functions
+    
+    private func convertGraphDataToJSON() -> String? {
+        // Group data points by type and convert to [seconds, percentage] format
+        var groupedData: [String: [[String]]] = [:]
+        
+        let calendar = Calendar.current
+        let now = currentTime
+        let startOfDay = calendar.startOfDay(for: now)
+        
+        for point in graphData {
+            if groupedData[point.type] == nil {
+                groupedData[point.type] = []
+            }
+            // Convert Date to seconds since start of day and percentage to string
+            let secondsSinceStartOfDay = point.time.timeIntervalSince(startOfDay)
+            let secondsString = String(format: "%.0f", secondsSinceStartOfDay)
+            let percentageString = String(format: "%.1f", point.percentage)
+            groupedData[point.type]?.append([secondsString, percentageString])
+        }
+        
+        // // Log the structure for debugging
+        // print("Grouped data structure:")
+        // for (type, dataPoints) in groupedData {
+        //     print("  \(type): \(dataPoints.count) data points")
+        //     if let firstPoint = dataPoints.first {
+        //         print("    Sample: [\(firstPoint[0]), \(firstPoint[1])]")
+        //     }
+        // }
+        
+        do {
+            let data = try JSONSerialization.data(withJSONObject: groupedData, options: [])
+            return String(data: data, encoding: .utf8)
+        } catch {
+            print("Failed to encode graph data: \(error)")
+            return nil
+        }
+    }
+    
+    private func sendGraphDataToDevice() {
+        guard bluetoothManager.connectedPeripheral != nil else {
+            print("No Bluetooth device connected")
+            return
+        }
+        
+        print("Preparing to send environment data to Bluetooth device...")
+        
+        // Send grouped chart data (most efficient and complete format)
+        if let chartJson = convertGraphDataToJSON() {
+            let command = "START:\(chartJson)"
+            bluetoothManager.sendMessage(command)
+            print("Sent START command with grouped chart data to Bluetooth device")
+            print("Data size: \(command.count) characters")
+        } else {
+            print("Failed to convert graph data to JSON")
+        }
+    }
+    
     struct ContentView_Previews: PreviewProvider {
         static var previews: some View {
             ContentView()
