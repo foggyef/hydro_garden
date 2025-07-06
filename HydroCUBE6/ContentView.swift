@@ -690,6 +690,9 @@ struct ContentView: View {
                             primaryButton: .default(Text("Proceed")) {
                                 growStartDate = Date().timeIntervalSinceReferenceDate
                                 print("Proceeded without nutrient profile, start date set to \(growStartDate)")
+                                sendFunctionParamsToDevice()
+                                sendLightColorToDevice()
+                                bluetoothManager.sendMessage("START")
                             },
                             secondaryButton: .cancel(Text("Cancel"))
                         )
@@ -1277,11 +1280,22 @@ struct ContentView: View {
                                 growStartDate = Date().timeIntervalSinceReferenceDate
                                 editingControl = nil
                                 print("Start pressed, start date set to \(growStartDate)")
+                                
+                                // Send graph data to connected Bluetooth device
+                                sendFunctionParamsToDevice()
+                                sendLightColorToDevice()
+                                bluetoothManager.sendMessage("START")
                             }
                         } else {
                             growStartDate = 0
                             isEditingEnvironmentControls = false
                             print("Stop pressed, start date reset to 0")
+                            
+                            // Send stop command to connected Bluetooth device
+                            if bluetoothManager.connectedPeripheral != nil {
+                                bluetoothManager.sendMessage("STOP")
+                                print("Sent stop command to Bluetooth device")
+                            }
                         }
                     }) {
                         Text(growStartDate == 0 ? "Start" : "Stop")
@@ -2118,6 +2132,72 @@ struct ContentView: View {
         } else {
             print("Failed to convert graph data to JSON")
         }
+    }
+
+    private func convertFunctionParamsToJSON() -> String? {
+        // Convert tuple to dictionary for JSON serialization
+        let jsonDict = functionParams.mapValues { params in
+            [
+                "a": Double(String(format: "%.3f", params.a)) ?? params.a,
+                "b": Double(String(format: "%.3f", params.b)) ?? params.b,
+                "c": Double(String(format: "%.3f", params.c)) ?? params.c,
+                "k": Double(String(format: "%.3f", params.k)) ?? params.k,
+                "n": params.n
+            ]
+        }
+        
+        do {
+            let data = try JSONSerialization.data(withJSONObject: jsonDict, options: [])
+            return String(data: data, encoding: .utf8)
+        } catch {
+            print("Failed to convert functionParams to JSON: \(error)")
+            return nil
+        }
+    }
+
+    private func sendFunctionParamsToDevice() {
+        guard bluetoothManager.connectedPeripheral != nil else {
+            print("No Bluetooth device connected")
+            return
+        }
+        
+        if let functionParamsJson = convertFunctionParamsToJSON() {
+            let command = "FUNC_PROFILE:\(functionParamsJson)"
+            bluetoothManager.sendMessage(command)
+            print("Sent function parameters to Bluetooth device")
+        } else {
+            print("Failed to convert function parameters to JSON")
+        }
+    }
+
+    private func sendLightColorToDevice() {
+        guard bluetoothManager.connectedPeripheral != nil else {
+            print("No Bluetooth device connected")
+            return
+        }
+        
+        let lightColorStr = colorToRGBString(lightSliderColor)
+        let command = "GROW_LIGHT_COLOR:\(lightColorStr)"
+        bluetoothManager.sendMessage(command)
+        print("Sent light color to Bluetooth device: \(lightColorStr)")
+    }
+    
+    private func colorToRGBString(_ color: Color) -> String {
+        // Convert Color to UIColor to get RGB components
+        let uiColor = UIColor(color)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        
+        uiColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        
+        // Convert to 0-255 range and format as "r,g,b"
+        let r = Int(red * 255)
+        let g = Int(green * 255)
+        let b = Int(blue * 255)
+        
+        return "\(r),\(g),\(b)"
     }
     
     struct ContentView_Previews: PreviewProvider {
