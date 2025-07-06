@@ -17,6 +17,9 @@ class BluetoothManager: NSObject, ObservableObject {
     var centralManager: CBCentralManager!
     private var targetCharacteristic: CBCharacteristic? // Store the writable characteristic
     
+    private var messageQueue: [String] = []
+    private let maxPacketSize = 20
+    
     // UUIDs for the service and characteristics
     private let serviceUUID = CBUUID(string: "6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
     private let writeCharacteristicUUID = CBUUID(string: "6E400002-B5A3-F393-E0A9-E50E24DCCA9E") // Adjust if needed
@@ -50,16 +53,50 @@ class BluetoothManager: NSObject, ObservableObject {
     // Function to send a message to the connected device
     func sendMessage(_ message: String) {
         guard let peripheral = connectedPeripheral,
-              let characteristic = targetCharacteristic,
-              let data = message.data(using: .utf8) else {
-            print("Cannot send message: Peripheral or characteristic not ready, or message encoding failed")
+              let characteristic = targetCharacteristic else {
+            print("Cannot send message: Peripheral or characteristic not ready")
             return
         }
         
-        // Check if the characteristic supports writing
+        let chunks = chunkMessage(message)
+        messageQueue.append(contentsOf: chunks)
+        sendNextFromQueue(to: peripheral, characteristic: characteristic)
+    }
+    
+    // Break message into chunks with delimiters
+    private func chunkMessage(_ message: String) -> [String] {
+        var chunks: [String] = []
+        var remaining = message
+        
+        while !remaining.isEmpty {
+            let chunk = String(remaining.prefix(maxPacketSize))
+            chunks.append(chunk)
+            remaining = String(remaining.dropFirst(maxPacketSize))
+        }
+        chunks.append("\n")
+        
+        return chunks
+    }
+    
+    // Send a single chunk
+    private func sendChunk(_ chunk: String, to peripheral: CBPeripheral, characteristic: CBCharacteristic) {
+        guard let data = chunk.data(using: .utf8) else { return }
         let writeType: CBCharacteristicWriteType = characteristic.properties.contains(.write) ? .withResponse : .withoutResponse
         peripheral.writeValue(data, for: characteristic, type: writeType)
-        print("Sent message: \(message)")
+        print("Sent chunk: \(chunk)")
+    }
+    
+    // Send next message from queue
+    private func sendNextFromQueue(to peripheral: CBPeripheral, characteristic: CBCharacteristic) {
+        guard !messageQueue.isEmpty else { return }
+        
+        let chunk = messageQueue.removeFirst()
+        sendChunk(chunk, to: peripheral, characteristic: characteristic)
+        
+        // Send next chunk immediately (no waiting for response)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+            self.sendNextFromQueue(to: peripheral, characteristic: characteristic)
+        }
     }
 }
 
