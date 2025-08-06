@@ -15,7 +15,7 @@ from config import *
 # Load persistent data on startup
 run_profile = load_var("run_profile_bool", default = False, parse_type = bool)
 profile = load_profile()
-grow_light_color = load_var("grow_light_color", default = [225,225,225])
+grow_light_color = load_var("grow_light_color", default = [1,1,1])
 
 uart1 = UART(UART_ID, baudrate=UART_BAUDRATE, tx=Pin(UART_TX_PIN), rx=Pin(UART_RX_PIN))
 
@@ -94,7 +94,8 @@ def transmit_to_stm(channel: Channel, value: float):
     if channel.value == Channel.LIGHT:
         intensity_factor = float(command_dict["value"])
         color_intensity = tuple(int(c*intensity_factor) for c in grow_light_color)
-        command_dict["value"] = f"{color_intensity[0]},{color_intensity[1]},{color_intensity[2]}"
+        normalized = tuple(c/100 for c in color_intensity)
+        command_dict["value"] = f"{normalized[0]},{normalized[1]},{normalized[2]}"
 
     command = ujson.dumps(command_dict).encode("utf-8") + b"\n"
     
