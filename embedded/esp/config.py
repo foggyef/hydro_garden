@@ -10,8 +10,8 @@ WIFI_TIMEOUT = 10  # seconds to wait for connection
 # UART Configuration for STM Communication
 UART_ID = 1
 UART_BAUDRATE = 115200
-UART_TX_PIN = 21  # GPIO pin for UART TX
-UART_RX_PIN = 20  # GPIO pin for UART RX
+UART_TX_PIN = 17  # GPIO pin for UART TX
+UART_RX_PIN = 18  # GPIO pin for UART RX
 UART_RESPONSE_TIMEOUT = 0.1  # seconds to wait for STM response
 UART_BUFFER_SIZE = 100  # bytes to read from STM
 
